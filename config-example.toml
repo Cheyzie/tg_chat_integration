@@ -1,0 +1,10 @@
+[telegram]
+bot_token = "token"#can be obtained from @BotFather telegram bot
+chat_id = "1234567"#initial chat_id(empty string for deffered api definition)
+
+[webhook]
+path = "/telegram/webhook"#webhook path can use this
+domain = "https://0a84-188-163-76-7.ngrok-free.app"#domain of server deployment
+
+[auth]
+api_key="your-api-key"#key for api protection
