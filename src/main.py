@@ -3,6 +3,7 @@ import uvicorn
 from contextlib import asynccontextmanager
 
 from typing import Any
+from datetime import datetime
 from pathlib import Path
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
@@ -13,6 +14,7 @@ from aiogram.filters import CommandStart, Filter, Command
 from aiogram.types import Message
 
 class Chat(BaseModel):
+    name: str
     id: str
 
 class Repl(Filter):
@@ -20,7 +22,7 @@ class Repl(Filter):
         return message.reply_to_message is not None
 
 config: dict = toml.load(Path(__file__).parent.with_name("config.toml"))
-global_chat = {"id": config["telegram"]["chat_id"]}
+global_chats = {"default": {"id": config["telegram"]["chat_id"]}}
 ws_map: dict[str, dict[str, any]] = {}
 opperators: dict[str, dict[str, any]] = {}
 bot = Bot(
@@ -71,15 +73,19 @@ async def webhook(update: dict[str, Any]) -> None:
 def set_chat_id(chat: Chat, key = Depends(header_scheme)):
     if key != config["auth"]["api_key"]:
         raise HTTPException(status_code=403)
-    global_chat["id"] = chat.id
+    global_chats[chat.name] = {"id": chat.id}
     return {"status": "ok"}
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, name:str = 'Unknown', sessionID: str = ""):
+async def websocket_endpoint(websocket: WebSocket, name:str = 'Unknown', chat: str = "default", sessionID: str = ""):
     await websocket.accept()
     if sessionID == "": 
         await websocket.close(reason="sessionID is not specified")
         return
+    if chat not in global_chats:
+        await websocket.close(reason=f'chat "{chat}" is not configured')
+        return
+    chat_id = global_chats[chat]["id"]
     name=f'{name}[{sessionID}]'
     ws_map[name] = {"ws": websocket, "name": name, "message_sent": False, "chatting": "Nobody"}
     try:
@@ -87,14 +93,15 @@ async def websocket_endpoint(websocket: WebSocket, name:str = 'Unknown', session
             data = await websocket.receive_text()
             if data != "":
                 ws_map[name]["message_sent"] = True
-            await bot.send_message(global_chat["id"], f'{name}: {data}')
+            await bot.send_message(chat_id, f'{name}: {data}')
     except WebSocketDisconnect:
         if ws_map[name]["message_sent"]:
-            await bot.send_message(global_chat["id"], f'{name} has disconnected')
+            await bot.send_message(chat_id, f'{name} has disconnected')
         del ws_map[name]
 
 
-
+def isWorkTime(dt: datetime) -> bool:
+    return dt.weekday not in [5, 6] or dt.hour < 19
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000, loop="uvloop")
